@@ -1,0 +1,22 @@
+{
+  "name": "flyvpn",
+  "private": true,
+  "description": "Ephemeral Tailscale VPN with Fly.io",
+  "type": "module",
+  "scripts": {
+    "lint": "oxlint .",
+    "lint:fix": "oxlint --fix .",
+    "format": "oxfmt --write .",
+    "format:check": "oxfmt --check .",
+    "prepare": "lefthook install",
+    "up": "bun src/cli.ts up",
+    "down": "bun src/cli.ts down"
+  },
+  "devDependencies": {
+    "@types/bun": "^1.3.10",
+    "lefthook": "^2.1.3",
+    "oxfmt": "^0.38.0",
+    "oxlint": "^1.53.0",
+    "oxlint-tsgolint": "^0.16.0"
+  }
+}

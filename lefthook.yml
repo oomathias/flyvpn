@@ -1,0 +1,9 @@
+pre-commit:
+  parallel: true
+  commands:
+    oxlint:
+      run: bun run lint:fix
+      stage_fixed: true
+    oxfmt:
+      run: bun run format
+      stage_fixed: true

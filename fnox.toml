@@ -1,0 +1,7 @@
+default_provider = "flyvpn"
+
+[providers]
+flyvpn = { type = "keychain", service = "flyvpn" }
+
+[secrets]
+TS_AUTHKEY = { provider = "flyvpn", value = "TS_AUTHKEY" }

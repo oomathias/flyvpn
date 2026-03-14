@@ -1,0 +1,18 @@
+{
+  "$schema": "./node_modules/oxfmt/configuration_schema.json",
+  "singleQuote": true,
+  "jsxSingleQuote": true,
+  "semi": false,
+  "trailingComma": "es5",
+  "experimentalSortImports": {
+    "groups": [["builtin"], ["external"], ["internal"], ["parent", "sibling", "index"]],
+    "internalPattern": ["^~/"],
+    "ignoreCase": true,
+    "newlinesBetween": true,
+    "order": "asc",
+    "sortSideEffects": true,
+    "partitionByComment": false,
+    "partitionByNewline": false,
+  },
+  "experimentalSortPackageJson": true,
+}

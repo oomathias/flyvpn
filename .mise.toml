@@ -1,0 +1,18 @@
+[plugins]
+fnox-env = "https://github.com/jdx/mise-env-fnox"
+
+[tools]
+bun = "1.2"
+fnox = "latest"
+
+[env]
+_.fnox-env = { tools = true }
+
+[tasks.up]
+description = "Create a Fly exit node and use it locally"
+interactive = true
+run = "bun src/cli.ts up"
+
+[tasks.down]
+description = "Destroy every Fly app prefixed with flyvpn"
+run = "bun src/cli.ts down"
