@@ -10,6 +10,8 @@ Spin up a VPN in a few seconds across 17 regions.
 
 Go use Mullvad past $5/€5 a month.
 
+https://github.com/user-attachments/assets/cb4662af-c52e-4d40-be69-a59b5cde4119
+
 ## What it does
 
 - lists Fly regions and lets you pick one interactively
