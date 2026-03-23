@@ -125,7 +125,6 @@ primary_region = ${JSON.stringify(region.code)}
 
 [env]
   TS_HOSTNAME = ${JSON.stringify(appName)}
-  TS_STATE_DIR = ${JSON.stringify(TS_STATE_DIR)}
 
 [experimental]
   entrypoint = ["/bin/sh", "-lc"]
