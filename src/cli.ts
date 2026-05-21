@@ -55,9 +55,6 @@ function requireCommand(name: string) {
 async function up() {
   ;['fly', 'tailscale'].forEach(requireCommand)
 
-  const authKey = Bun.env.TS_AUTHKEY?.trim()
-  if (!authKey) throw new Error('Set TS_AUTHKEY before running `flyvpn up`.')
-
   const regions = parseResponseList<{
     code?: string
     Code?: string
@@ -96,25 +93,51 @@ async function up() {
     rl.close()
   }
 
-  const appName = `${APP_PREFIX}${region.code}-${Math.random().toString(36).slice(2, 8)}`
-  const tempDir = mkdtempSync(join(tmpdir(), 'flyvpn-'))
-  const configPath = join(tempDir, 'fly.toml')
-  const startupCommand = [
-    'set -eu',
-    `mkdir -p /var/run/tailscale ${TS_STATE_DIR}`,
-    'echo 1 > /proc/sys/net/ipv4/ip_forward',
-    'echo 1 > /proc/sys/net/ipv6/conf/all/forwarding',
-    'iptables -t nat -A POSTROUTING -o eth0 -j MASQUERADE',
-    'ip6tables -t nat -A POSTROUTING -o eth0 -j MASQUERADE',
-    `/usr/local/bin/tailscaled --statedir=${TS_STATE_DIR} --socket=${TS_SOCKET} --port=41641 & TAILSCALED_PID=$!`,
-    `until [ -S ${TS_SOCKET} ]; do sleep 0.1; done`,
-    `until /usr/local/bin/tailscale --socket=${TS_SOCKET} up --authkey=\${TS_AUTHKEY} --hostname=\${TS_HOSTNAME} --advertise-exit-node; do sleep 0.1; done`,
-    'wait "$TAILSCALED_PID"',
-  ].join('; ')
+  const appNames = getFlyvpnAppNames()
+  const reusableAppName =
+    appNames.find((name) => name.startsWith(`${APP_PREFIX}${region.code}-`)) ?? null
+  const appNamesToDestroy = appNames.filter((name) => name !== reusableAppName)
+  const appName =
+    reusableAppName ?? `${APP_PREFIX}${region.code}-${Math.random().toString(36).slice(2, 8)}`
+  const authKey = reusableAppName === null ? Bun.env.TS_AUTHKEY?.trim() : null
 
-  writeFileSync(
-    configPath,
-    `app = ${JSON.stringify(appName)}
+  if (reusableAppName === null && !authKey) {
+    throw new Error('Set TS_AUTHKEY before running `flyvpn up`.')
+  }
+
+  if (appNamesToDestroy.length > 0) {
+    if (run(['tailscale', 'set', '--exit-node='], true).exitCode === 0) {
+      console.log('Cleared the local Tailscale exit node.')
+    }
+
+    await destroyFlyvpnApps(appNamesToDestroy)
+  }
+
+  if (reusableAppName !== null) {
+    console.log(`Reusing ${appName} in ${region.code} (${region.name})...`)
+    await runInherited(['fly', 'scale', 'count', '1', '-a', appName, '-y'])
+  }
+
+  if (reusableAppName === null) {
+    const tempDir = mkdtempSync(join(tmpdir(), 'flyvpn-'))
+    const configPath = join(tempDir, 'fly.toml')
+    const startupCommand = [
+      'set -eu',
+      `mkdir -p /var/run/tailscale ${TS_STATE_DIR}`,
+      'echo 1 > /proc/sys/net/ipv4/ip_forward',
+      'echo 1 > /proc/sys/net/ipv6/conf/all/forwarding',
+      'iptables -t nat -A POSTROUTING -o eth0 -j MASQUERADE',
+      'ip6tables -t nat -A POSTROUTING -o eth0 -j MASQUERADE',
+      `/usr/local/bin/tailscaled --statedir=${TS_STATE_DIR} --socket=${TS_SOCKET} --port=41641 & TAILSCALED_PID=$!`,
+      `until [ -S ${TS_SOCKET} ]; do sleep 0.1; done`,
+      `until /usr/local/bin/tailscale --socket=${TS_SOCKET} up --authkey=\${TS_AUTHKEY} --hostname=\${TS_HOSTNAME} --advertise-exit-node; do sleep 0.1; done`,
+      'wait "$TAILSCALED_PID"',
+    ].join('; ')
+
+    try {
+      writeFileSync(
+        configPath,
+        `app = ${JSON.stringify(appName)}
 primary_region = ${JSON.stringify(region.code)}
 
 [build]
@@ -135,19 +158,27 @@ primary_region = ${JSON.stringify(region.code)}
   cpus = 2
   memory_mb = 512
 `
-  )
+      )
 
-  console.log(`Creating ${appName} in ${region.code} (${region.name})...`)
+      console.log(`Creating ${appName} in ${region.code} (${region.name})...`)
 
-  try {
-    await runInherited(['fly', 'apps', 'create', appName])
-    await runInherited(['fly', 'secrets', 'set', `TS_AUTHKEY=${authKey}`, '-a', appName, '--stage'])
-    await runInherited(
-      ['fly', 'deploy', '--ha=false', '--config', configPath, '-a', appName],
-      tempDir
-    )
-  } finally {
-    rmSync(tempDir, { force: true, recursive: true })
+      await runInherited(['fly', 'apps', 'create', appName])
+      await runInherited([
+        'fly',
+        'secrets',
+        'set',
+        `TS_AUTHKEY=${authKey}`,
+        '-a',
+        appName,
+        '--stage',
+      ])
+      await runInherited(
+        ['fly', 'deploy', '--ha=false', '--config', configPath, '-a', appName],
+        tempDir
+      )
+    } finally {
+      rmSync(tempDir, { force: true, recursive: true })
+    }
   }
 
   let exitNode: ExitNode | null = null
@@ -188,7 +219,7 @@ primary_region = ${JSON.stringify(region.code)}
 
   if (!exitNode) {
     console.log('')
-    console.log(`Deployed ${appName}, but it did not show up as a selectable exit node within 60s.`)
+    console.log(`${appName} did not show up as a selectable exit node within 60s.`)
     console.log('Approve it in the Tailscale admin if needed, then run:')
     console.log(`tailscale set --exit-node=${appName} --exit-node-allow-lan-access=true`)
     return
@@ -213,7 +244,7 @@ primary_region = ${JSON.stringify(region.code)}
     return
   }
 
-  console.log(`Created ${exitNodeName}, but could not switch your local client automatically.`)
+  console.log(`Could not switch your local client to ${exitNodeName} automatically.`)
   if (result.stdout) console.log(result.stdout)
   if (result.stderr) console.log(result.stderr)
   console.log(
@@ -228,7 +259,21 @@ async function down() {
     console.log('Cleared the local Tailscale exit node.')
   }
 
-  const appNames = parseResponseList<{
+  const appNames = getFlyvpnAppNames()
+
+  if (appNames.length === 0) {
+    console.log('No flyvpn Fly apps found.')
+    return
+  }
+
+  await destroyFlyvpnApps(appNames)
+
+  console.log('')
+  console.log('Fly cleanup complete.')
+}
+
+function getFlyvpnAppNames() {
+  return parseResponseList<{
     name?: string
     Name?: string
     AppName?: string
@@ -236,12 +281,9 @@ async function down() {
     .map((row) => row.name ?? row.Name ?? row.AppName)
     .filter((name): name is string => typeof name === 'string' && name.startsWith(APP_PREFIX))
     .sort()
+}
 
-  if (appNames.length === 0) {
-    console.log('No flyvpn Fly apps found.')
-    return
-  }
-
+async function destroyFlyvpnApps(appNames: string[]) {
   console.log(`Destroying ${appNames.length} app(s)...`)
 
   for (const appName of appNames) {
@@ -290,9 +332,6 @@ async function down() {
 
     await runInherited(['fly', 'apps', 'destroy', appName, '-y'])
   }
-
-  console.log('')
-  console.log('Fly cleanup complete.')
 }
 
 function parseResponseList<T>(stdout: string, fallbackKey: string): T[] {
