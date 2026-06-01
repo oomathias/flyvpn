@@ -130,7 +130,7 @@ async function up() {
       'ip6tables -t nat -A POSTROUTING -o eth0 -j MASQUERADE',
       `/usr/local/bin/tailscaled --statedir=${TS_STATE_DIR} --socket=${TS_SOCKET} --port=41641 & TAILSCALED_PID=$!`,
       `until [ -S ${TS_SOCKET} ]; do sleep 0.1; done`,
-      `until /usr/local/bin/tailscale --socket=${TS_SOCKET} up --authkey=\${TS_AUTHKEY} --hostname=\${TS_HOSTNAME} --advertise-exit-node; do sleep 0.1; done`,
+      `until /usr/local/bin/tailscale --socket=${TS_SOCKET} up --authkey=\${TS_AUTHKEY} --hostname=\${TS_HOSTNAME} --advertise-exit-node --advertise-connector; do sleep 0.1; done`,
       'wait "$TAILSCALED_PID"',
     ].join('; ')
 
