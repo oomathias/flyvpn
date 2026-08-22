@@ -27,16 +27,11 @@ https://github.com/user-attachments/assets/cb4662af-c52e-4d40-be69-a59b5cde4119
 - `tailscale` installed and already connected locally
 - a Tailscale auth key available as `TS_AUTHKEY`
 
-## Set up the `TS_AUTHKEY` environment variable
+Fly.io bills started Machines by usage. See [Fly.io billing](https://fly.io/docs/about/billing/) before you create an exit node.
 
-Create a tagged auth key in the Tailscale admin:
+## Configure your tailnet
 
-- `Reusable`
-- `Ephemeral`
-- `Pre-approved`
-- tag: `tag:vpn`
-
-Then add an ACL so nodes authenticated with that tag can auto-approve exit-node advertising:
+Add `tag:vpn` to your [tailnet policy file](https://tailscale.com/docs/reference/syntax/policy-file). Merge these entries with any existing `tagOwners` and `autoApprovers` sections:
 
 ```json
 {
@@ -49,57 +44,54 @@ Then add an ACL so nodes authenticated with that tag can auto-approve exit-node 
 }
 ```
 
-That lets new `flyvpn-*` nodes come up already tagged and approved as exit nodes instead of waiting for manual approval.
+Create a Tailscale auth key with these settings:
 
-## Store `TS_AUTHKEY` (optional)
+- **Reusable**
+- **Ephemeral**
+- **Pre-approved**, if your tailnet uses device approval
+- `tag:vpn`
 
-This repo can use Fnox to conveniently store the secret.
+The tag lets Tailscale approve each new exit node without a second admin action. See [Set up a server on your Tailscale network](https://tailscale.com/docs/how-to/set-up-servers) for the auth-key options.
 
-Fnox:
+## Start the VPN
+
+Clone the repository and open its directory:
 
 ```sh
-fnox set TS_AUTHKEY tskey-auth-...
+git clone https://github.com/m7b-io/flyvpn.git
+cd flyvpn
 ```
 
-Environment variable:
+Set the auth key for the current shell:
 
 ```sh
 export TS_AUTHKEY=tskey-auth-...
 ```
 
-## Usage
-
-Commands:
+Then start the exit node:
 
 ```sh
 bun run up
+```
+
+Choose a region from the list. `flyvpn` creates an app named `flyvpn-<region>-<suffix>` and deploys the official `tailscale/tailscale:stable` image. It then selects the new exit node.
+
+If an app already exists for the selected region, `flyvpn` reuses it. It removes any other Fly apps whose names start with `flyvpn-`.
+
+If the node does not appear in your tailnet within 60 seconds, the command prints the manual `tailscale set` command.
+
+## Stop the VPN
+
+Run:
+
+```sh
 bun run down
 ```
 
-## Fly regions
+This command tries to clear the local exit node and log out the remote Tailscale nodes. It then destroys every visible Fly app whose name starts with `flyvpn-`.
 
-| Code  | Region                       |
-| ----- | ---------------------------- |
-| `ams` | Amsterdam, Netherlands       |
-| `arn` | Stockholm, Sweden            |
-| `bom` | Mumbai, India                |
-| `cdg` | Paris, France                |
-| `dfw` | Dallas, Texas (US)           |
-| `ewr` | Secaucus, NJ (US)            |
-| `fra` | Frankfurt, Germany           |
-| `gru` | Sao Paulo, Brazil            |
-| `iad` | Ashburn, Virginia (US)       |
-| `jnb` | Johannesburg, South Africa   |
-| `lax` | Los Angeles, California (US) |
-| `lhr` | London, United Kingdom       |
-| `nrt` | Tokyo, Japan                 |
-| `ord` | Chicago, Illinois (US)       |
-| `sin` | Singapore, Singapore         |
-| `sjc` | San Jose, California (US)    |
-| `syd` | Sydney, Australia            |
-| `yyz` | Toronto, Canada              |
+Do not use the `flyvpn-` prefix for Fly apps that this tool must preserve.
 
-## Notes
+## License
 
-- `up` waits for the new node to appear in your tailnet, then sets your local client to use it as the exit node.
-- `down` clears your local exit node first, logs out the remote Tailscale node, then destroys all Fly apps whose names start with `flyvpn-`.
+`flyvpn` is available under the [MIT License](LICENSE).
