@@ -11,10 +11,40 @@ const TS_STATE_DIR = '/var/lib/tailscale'
 const TS_SOCKET = '/var/run/tailscale/tailscaled.sock'
 const EXIT_NODE_WAIT_MS = 60_000
 const EXIT_NODE_POLL_MS = 2_000
+const MAX_MONTHLY_COMPUTE_USD = 5
 
-type Region = {
+// https://fly.io/docs/about/pricing/#compute, checked 2026-09-02.
+// flyctl lists regions but does not expose their compute prices.
+const REGION_VM_BUDGETS: Record<
+  string,
+  { cpus: 1 | 2; memoryMb: 256 | 512; monthlyComputeUsd: number }
+> = {
+  ams: { cpus: 2, memoryMb: 512, monthlyComputeUsd: 4.04 },
+  arn: { cpus: 2, memoryMb: 512, monthlyComputeUsd: 4.04 },
+  cdg: { cpus: 2, memoryMb: 512, monthlyComputeUsd: 4.41 },
+  dfw: { cpus: 2, memoryMb: 512, monthlyComputeUsd: 4.86 },
+  ewr: { cpus: 2, memoryMb: 512, monthlyComputeUsd: 3.89 },
+  fra: { cpus: 2, memoryMb: 512, monthlyComputeUsd: 4.49 },
+  gru: { cpus: 1, memoryMb: 256, monthlyComputeUsd: 3.14 },
+  iad: { cpus: 2, memoryMb: 512, monthlyComputeUsd: 3.89 },
+  jnb: { cpus: 1, memoryMb: 512, monthlyComputeUsd: 4.16 },
+  lax: { cpus: 2, memoryMb: 512, monthlyComputeUsd: 4.66 },
+  lhr: { cpus: 2, memoryMb: 512, monthlyComputeUsd: 4.41 },
+  nrt: { cpus: 1, memoryMb: 512, monthlyComputeUsd: 4.18 },
+  ord: { cpus: 2, memoryMb: 512, monthlyComputeUsd: 4.86 },
+  sin: { cpus: 2, memoryMb: 512, monthlyComputeUsd: 4.93 },
+  sjc: { cpus: 2, memoryMb: 512, monthlyComputeUsd: 4.64 },
+  syd: { cpus: 2, memoryMb: 512, monthlyComputeUsd: 4.93 },
+  yyz: { cpus: 2, memoryMb: 512, monthlyComputeUsd: 4.34 },
+}
+
+type FlyRegion = {
   code: string
   name: string
+}
+
+type Region = FlyRegion & {
+  vm: (typeof REGION_VM_BUDGETS)[string]
 }
 
 type ExitNode = {
@@ -55,24 +85,31 @@ function requireCommand(name: string) {
 async function up() {
   ;['fly', 'tailscale'].forEach(requireCommand)
 
-  const regions = parseResponseList<{
+  const flyRegions = parseResponseList<{
     code?: string
     Code?: string
     name?: string
     Name?: string
   }>(run(['fly', 'platform', 'regions', '--json']).stdout, 'regions')
-    .flatMap((row): Region[] => {
+    .flatMap((row): FlyRegion[] => {
       const code = row.code ?? row.Code
       const name = row.name ?? row.Name
       return code && name ? [{ code, name }] : []
     })
     .sort((a, b) => a.name.localeCompare(b.name))
 
-  if (regions.length === 0) throw new Error('Fly returned no regions.')
+  const regions = flyRegions.flatMap((region): Region[] => {
+    const vm = REGION_VM_BUDGETS[region.code]
+    return vm && vm.monthlyComputeUsd < MAX_MONTHLY_COMPUTE_USD ? [{ ...region, vm }] : []
+  })
+  if (regions.length === 0)
+    throw new Error('Fly returned no regions with a reviewed price under $5.')
 
   console.log('Available Fly regions:')
   regions.forEach((region, index) => {
-    console.log(`${String(index + 1).padStart(2, ' ')}. ${region.code} - ${region.name}`)
+    console.log(
+      `${String(index + 1).padStart(2, ' ')}. ${region.code} - ${region.name} (${region.vm.cpus}x/${region.vm.memoryMb} MB, ~$${region.vm.monthlyComputeUsd.toFixed(2)}/month)`
+    )
   })
 
   const rl = createInterface({ input, output })
@@ -115,6 +152,15 @@ async function up() {
 
   if (reusableAppName !== null) {
     console.log(`Reusing ${appName} in ${region.code} (${region.name})...`)
+    await runInherited([
+      'fly',
+      'scale',
+      'vm',
+      `shared-cpu-${region.vm.cpus}x`,
+      `--vm-memory=${region.vm.memoryMb}`,
+      '-a',
+      appName,
+    ])
     await runInherited(['fly', 'scale', 'count', '1', '-a', appName, '-y'])
   }
 
@@ -155,8 +201,8 @@ primary_region = ${JSON.stringify(region.code)}
 
 [[vm]]
   cpu_kind = "shared"
-  cpus = 2
-  memory_mb = 512
+  cpus = ${region.vm.cpus}
+  memory_mb = ${region.vm.memoryMb}
 `
       )
 
